@@ -15,18 +15,22 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
 var (
-	updateFlag = flag.Duration("update", time.Minute, "Time interval to run the updater")
-	userFlag   = flag.String("user", "", "CloudFlare username to update with")
-	keyFlag    = flag.String("key", "", "CloudFlare authorization token")
-	domainFlag = flag.String("domain", "", "Parent domain of the hostname to update")
-	hostsFlag  = flag.String("hosts", "", "Comma separated subdomain list to update")
-	ttlFlag    = flag.Int("ttl", 120, "Domain time to live value")
+	updateFlag  = flag.Duration("update", time.Minute, "Time interval to run the updater")
+	userFlag    = flag.String("user", "", "CloudFlare username to update with")
+	keyFlag     = flag.String("key", "", "CloudFlare authorization token")
+	domainsFlag = flag.String("domains", "", "Comma separated domain list to update")
+	ttlFlag     = flag.Int("ttl", 120, "Domain time to live value")
+)
+
+var (
+	domainSplitter = regexp.MustCompile("(.+)\\.(.+\\..+)")
 )
 
 func main() {
@@ -42,12 +46,12 @@ func main() {
 		if address != "" && address != previous {
 			log.Printf("Updating IP address to %s", address)
 
-			for _, host := range strings.Split(*hostsFlag, ",") {
-				if _, err := updateDNS(address, *userFlag, *keyFlag, *domainFlag, host, *ttlFlag); err != nil {
-					log.Printf("Failed to update %s.%s: %v", host, *domainFlag, err)
+			for _, host := range strings.Split(*domainsFlag, ",") {
+				if _, err := updateDNS(address, *userFlag, *keyFlag, host, *ttlFlag); err != nil {
+					log.Printf("Failed to update %s: %v", host, err)
 					continue
 				}
-				log.Printf("Domain updated: %s.%s", host, *domainFlag)
+				log.Printf("Domain updated: %s", host)
 				previous = address
 			}
 		}
@@ -90,7 +94,11 @@ func resolveAddress() (string, error) {
 }
 
 // updateDNS updates a single CloudFlare DNS entry to the given IP address.
-func updateDNS(address string, user, key string, zone string, record string, ttl int) (string, error) {
+func updateDNS(address string, user, key string, domain string, ttl int) (string, error) {
+	// Split the domain into zone and record fields
+	parts := domainSplitter.FindStringSubmatch(domain)
+	zone, record := parts[2], parts[1]
+
 	// Resolve the record id for the host
 	id, err := resolveRecordId(user, key, zone, record)
 	if err != nil {

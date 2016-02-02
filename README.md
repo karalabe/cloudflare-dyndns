@@ -19,16 +19,14 @@ go get github.com/karalabe/cloudflare-dyndns
 cloudflare-dyndns --help
 
 Usage of cloudflare-dyndns:
-  -domain string
-    	Parent domain of the hostname to update
-  -hosts string
-    	Comma separated subdomain list to update
+  -domains string
+      Comma separated domain list to update
   -key string
-    	CloudFlare authorization token
+      CloudFlare authorization token
   -ttl int
-    	Domain time to live value (default 120)
+      Domain time to live value (default 120)
   -update duration
-    	Time interval to run the updater (default 1m0s)
+      Time interval to run the updater (default 1m0s)
   -user string
-    	CloudFlare username to update with
+      CloudFlare username to update with
 ```
