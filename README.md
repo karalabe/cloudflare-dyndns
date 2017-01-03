@@ -39,7 +39,7 @@ same flags you would use for the standalone version.
 
 ```
 $ docker pull karalabe/cloudflare-dyndns
-$ docker run --restart=always karalabe/cloudflare-dyndns [...]
+$ docker run -d --restart=always karalabe/cloudflare-dyndns [...]
 ```
 
 Above we've also set a restart policy to always start up the DNS updates even in
