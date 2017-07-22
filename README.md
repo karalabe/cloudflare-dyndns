@@ -20,15 +20,19 @@ $ cloudflare-dyndns --help
 
 Usage of cloudflare-dyndns:
   -domains string
-      Comma separated domain list to update
+    	Comma separated domain list to update
+  -interface string
+    	Obtain external IP using the specified interface
   -key string
-      CloudFlare authorization token
+    	CloudFlare authorization token
+  -mail string
+    	Delivery notifications via this mail server (optional)
   -ttl int
-      Domain time to live value (default 120)
+    	Domain time to live value (default 120)
   -update duration
-      Time interval to run the updater (default 1m0s)
+    	Time interval to run the updater (default 1m0s)
   -user string
-      CloudFlare username to update with
+    	CloudFlare username to update with
 ```
 
 ## Running from Docker
