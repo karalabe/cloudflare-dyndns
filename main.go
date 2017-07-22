@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"net/smtp"
 	"net/url"
@@ -30,6 +31,7 @@ var (
 	domainsFlag = flag.String("domains", "", "Comma separated domain list to update")
 	ttlFlag     = flag.Int("ttl", 120, "Domain time to live value")
 	mailFlag    = flag.String("mail", "", "Delivery notifications via this mail server (optional)")
+	ifaceFlag   = flag.String("interface", "", "Obtain external IP using the specified interface")
 )
 
 var (
@@ -81,10 +83,10 @@ func main() {
 			if !starting {
 				sendMail(address, results)
 			}
-			// Wait for the next invocation
-			time.Sleep(*updateFlag)
-			starting = false
 		}
+		starting = false
+		// Wait for the next invocation
+		time.Sleep(*updateFlag)
 	}
 }
 
@@ -92,8 +94,16 @@ func main() {
 // third party resolution services. Currently two are queried and the DNS entry
 // only updated if they both match.
 func resolveAddress() (string, error) {
+	client := http.DefaultClient
+	if *ifaceFlag != "" {
+		var err error
+		client, err = httpClientWithIface(*ifaceFlag)
+		if err != nil {
+			log.Fatal("Failed to use the interface specified.")
+		}
+	}
 	// Resolve the external address via whatismyipaddress.com
-	reply, err := http.Get("http://ipv4bot.whatismyipaddress.com")
+	reply, err := client.Get("http://ipv4bot.whatismyipaddress.com")
 	if err != nil {
 		return "", err
 	}
@@ -104,7 +114,7 @@ func resolveAddress() (string, error) {
 		return "", err
 	}
 	// Resolve the external address via ipify.org
-	reply, err = http.Get("https://api.ipify.org")
+	reply, err = client.Get("https://api.ipify.org")
 	if err != nil {
 		return "", err
 	}
@@ -213,6 +223,30 @@ func resolveRecordId(user, key string, zone, record string) (string, error) {
 		}
 	}
 	return "", errors.New("unknown record")
+}
+
+func httpClientWithIface(iface string) (*http.Client, error) {
+	ief, err := net.InterfaceByName(iface)
+	if err != nil {
+		return nil, err
+	}
+	addrs, err := ief.Addrs()
+	if err != nil {
+		return nil, err
+	}
+
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		Dial: (&net.Dialer{
+			LocalAddr: &net.TCPAddr{
+				IP: addrs[0].(*net.IPNet).IP,
+			},
+		}).Dial,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	return &http.Client{
+		Transport: transport,
+	}, nil
 }
 
 func buildMail(address string, results []struct {
