@@ -14,7 +14,9 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/smtp"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -27,6 +29,7 @@ var (
 	keyFlag     = flag.String("key", "", "CloudFlare authorization token")
 	domainsFlag = flag.String("domains", "", "Comma separated domain list to update")
 	ttlFlag     = flag.Int("ttl", 120, "Domain time to live value")
+	mailFlag    = flag.String("mail", "", "Delivery notifications via this mail server (optional)")
 )
 
 var (
@@ -36,27 +39,52 @@ var (
 func main() {
 	flag.Parse()
 
+	starting := true
 	previous := "" // Previous address to prevent hammering CloudFlare
 	for {
+		var results []struct {
+			string
+			error
+		}
 		// Resolve the external address and update if valid
 		address, err := resolveAddress()
 		if err != nil {
 			log.Printf("Failed to resolve external address: %v", err)
+			results = append(results, struct {
+				string
+				error
+			}{"all", err})
+			sendMail(address, results)
+			// Wait for the next invocation
+			time.Sleep(*updateFlag)
+			continue
 		}
-		if address != "" && address != previous {
+		if address != previous {
 			log.Printf("Updating IP address to %s", address)
 
 			for _, host := range strings.Split(*domainsFlag, ",") {
 				if _, err := updateDNS(address, *userFlag, *keyFlag, host, *ttlFlag); err != nil {
 					log.Printf("Failed to update %s: %v", host, err)
+					results = append(results, struct {
+						string
+						error
+					}{host, err})
 					continue
 				}
 				log.Printf("Domain updated: %s", host)
+				results = append(results, struct {
+					string
+					error
+				}{host, nil})
 				previous = address
 			}
+			if !starting {
+				sendMail(address, results)
+			}
+			// Wait for the next invocation
+			time.Sleep(*updateFlag)
+			starting = false
 		}
-		// Wait for the next invocation
-		time.Sleep(*updateFlag)
 	}
 }
 
@@ -102,7 +130,7 @@ func updateDNS(address string, user, key string, domain string, ttl int) (string
 	// Resolve the record id for the host
 	id, err := resolveRecordId(user, key, zone, record)
 	if err != nil {
-		return "", fmt.Errorf("record id reolution failed: %v", err)
+		return "", fmt.Errorf("record id resolution failed: %v", err)
 	}
 	// Post the CloudFlare DNS update request
 	reply, err := http.PostForm("https://www.cloudflare.com/api_json.html", url.Values{
@@ -185,4 +213,60 @@ func resolveRecordId(user, key string, zone, record string) (string, error) {
 		}
 	}
 	return "", errors.New("unknown record")
+}
+
+func buildMail(address string, results []struct {
+	string
+	error
+}) (string, string) {
+	subject := "Failed to resolve external IP"
+	if address != "" {
+		subject = fmt.Sprintf("External IP changed to %s", address)
+	}
+	body := "Tried to update the following domains:\n"
+	for _, result := range results {
+		status := "OK"
+		if result.error != nil {
+			status = result.error.Error()
+		}
+		body += fmt.Sprintf("\n%s:\n\t%s\n", result.string, status)
+	}
+	return subject, body
+}
+
+func sendMail(ip string, results []struct {
+	string
+	error
+}) error {
+	if *mailFlag == "" {
+		return nil
+	}
+	var mail bytes.Buffer
+	subject, body := buildMail(ip, results)
+	hostname, err := os.Hostname()
+	if err != nil {
+		return err
+	}
+	from := fmt.Sprintf("dns@%s", hostname)
+	c, err := smtp.Dial(*mailFlag)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	c.Mail(from)
+	c.Rcpt(*userFlag)
+	mail.WriteString(fmt.Sprintf("Subject: [%s] %s\n", hostname, subject))
+	mail.WriteString(fmt.Sprintf("From: Cloudflare DNS <%s>\n", from))
+	mail.WriteString(fmt.Sprintf("To: %s\n\n", *userFlag))
+	mail.WriteString(fmt.Sprintf("%s: %s", hostname, body))
+
+	wc, err := c.Data()
+	if err != nil {
+		return err
+	}
+	defer wc.Close()
+	if _, err = mail.WriteTo(wc); err != nil {
+		return err
+	}
+	return nil
 }
