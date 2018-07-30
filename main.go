@@ -7,18 +7,16 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cloudflare/cloudflare-go"
 )
 
 var (
@@ -30,7 +28,7 @@ var (
 )
 
 var (
-	domainSplitter = regexp.MustCompile("(.+)\\.(.+\\..+)")
+	domainSplitter = regexp.MustCompile(".+\\.(.+\\..+)")
 )
 
 func main() {
@@ -47,7 +45,7 @@ func main() {
 			log.Printf("Updating IP address to %s", address)
 
 			for _, host := range strings.Split(*domainsFlag, ",") {
-				if _, err := updateDNS(address, *userFlag, *keyFlag, host, *ttlFlag); err != nil {
+				if err := updateDNS(address, *userFlag, *keyFlag, host, *ttlFlag); err != nil {
 					log.Printf("Failed to update %s: %v", host, err)
 					continue
 				}
@@ -94,95 +92,35 @@ func resolveAddress() (string, error) {
 }
 
 // updateDNS updates a single CloudFlare DNS entry to the given IP address.
-func updateDNS(address string, user, key string, domain string, ttl int) (string, error) {
+func updateDNS(address string, user, key string, host string, ttl int) error {
 	// Split the domain into zone and record fields
-	parts := domainSplitter.FindStringSubmatch(domain)
-	zone, record := parts[2], parts[1]
+	domain := domainSplitter.FindStringSubmatch(host)[1]
 
-	// Resolve the record id for the host
-	id, err := resolveRecordId(user, key, zone, record)
+	// Create an authenticated Cloudflare client
+	api, err := cloudflare.New(key, user)
 	if err != nil {
-		return "", fmt.Errorf("record id reolution failed: %v", err)
+		return err
 	}
-	// Post the CloudFlare DNS update request
-	reply, err := http.PostForm("https://www.cloudflare.com/api_json.html", url.Values{
-		"a":       {"rec_edit"},
-		"email":   {user},
-		"tkn":     {key},
-		"z":       {zone},
-		"id":      {id},
-		"type":    {"A"},
-		"name":    {record},
-		"ttl":     {strconv.Itoa(ttl)},
-		"content": {address},
-	})
+	// Resolve the zone and record id for the host
+	zone, err := api.ZoneIDByName(domain)
 	if err != nil {
-		return "", err
+		fmt.Errorf("zone id resolution failed: %v", err)
 	}
-	defer reply.Body.Close()
+	recs, err := api.DNSRecords(zone, cloudflare.DNSRecord{Name: host, Type: "A"})
+	if err != nil {
+		fmt.Errorf("record id resolution failed: %v", err)
+	}
+	if len(recs) != 1 {
+		fmt.Errorf("invalid number of DNS records found: %+v", recs)
+	}
+	record := recs[0]
 
-	// Parse the reply and check if an error occurred
-	body, err := ioutil.ReadAll(reply.Body)
-	if err != nil {
-		return "", err
-	}
-	var failure struct {
-		Result  string `json:"result"`
-		Message string `json:"msg"`
-	}
-	if err := json.Unmarshal(body, &failure); err != nil {
-		return "", err
-	}
-	if failure.Result == "error" {
-		return "", fmt.Errorf("request denied: %s", failure.Message)
-	}
-	// Yay, no failure, flatten the reply and return
-	return string(body), err
-}
+	// Post the Cloudflare dns update
+	record.Content = address
+	record.TTL = ttl
 
-// resolveRecordId resolves the id string of a single subdomain entry in a zone
-// listing.
-func resolveRecordId(user, key string, zone, record string) (string, error) {
-	// Post a CloudFlare DNS record list request
-	reply, err := http.PostForm("https://www.cloudflare.com/api_json.html", url.Values{
-		"a":     {"rec_load_all"},
-		"email": {user},
-		"tkn":   {key},
-		"z":     {zone},
-	})
-	if err != nil {
-		return "", err
+	if err := api.UpdateDNSRecord(zone, record.ID, record); err != nil {
+		return fmt.Errorf("dns record update failed: %v", err)
 	}
-	defer reply.Body.Close()
-
-	// Parse the reply and check if an error occurred
-	body, err := ioutil.ReadAll(reply.Body)
-	if err != nil {
-		return "", err
-	}
-	var response struct {
-		Result   string `json:"result"`
-		Message  string `json:"msg"`
-		Response struct {
-			Records struct {
-				Objs []struct {
-					Id   string `json:"rec_id"`
-					Name string `json:"display_name"`
-				} `json:"objs"`
-			} `json:"recs"`
-		} `json:"response"`
-	}
-	if err := json.Unmarshal(body, &response); err != nil {
-		return "", err
-	}
-	if response.Result == "error" {
-		return "", fmt.Errorf("request denied: %s", response.Message)
-	}
-	// Find the DNS record in the response
-	for _, obj := range response.Response.Records.Objs {
-		if obj.Name == record {
-			return obj.Id, nil
-		}
-	}
-	return "", errors.New("unknown record")
+	return nil
 }

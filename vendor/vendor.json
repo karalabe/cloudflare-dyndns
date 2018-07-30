@@ -1,0 +1,31 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "qVT7pq/IjojMxaZKC7jTEvfhazQ=",
+			"path": "github.com/cloudflare/cloudflare-go",
+			"revision": "c48de4dcada74fc4bc882583560a51644fc8b0b8",
+			"revisionTime": "2018-07-27T17:23:25Z"
+		},
+		{
+			"checksumSHA1": "ljd3FhYRJ91cLZz3wsH9BQQ2JbA=",
+			"path": "github.com/pkg/errors",
+			"revision": "816c9085562cd7ee03e7f8188a1cfd942858cded",
+			"revisionTime": "2018-03-11T21:45:15Z"
+		},
+		{
+			"checksumSHA1": "GtamqiJoL7PGHsN454AoffBFMa8=",
+			"path": "golang.org/x/net/context",
+			"revision": "c4299a1a0d8524c11563db160fbf9bddbceadb21",
+			"revisionTime": "2018-05-13T00:59:11Z"
+		},
+		{
+			"checksumSHA1": "HoCvrd3hEhsFeBOdEw7cbcfyk50=",
+			"path": "golang.org/x/time/rate",
+			"revision": "fbb02b2291d28baffd63558aa44b4b56f178d650",
+			"revisionTime": "2018-04-12T16:56:04Z"
+		}
+	],
+	"rootPath": "github.com/karalabe/cloudflare-dyndns"
+}
